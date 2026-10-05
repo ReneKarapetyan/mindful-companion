@@ -154,7 +154,13 @@ window.MC_WORK = {
       breakNow: 'Ժամանակն է 1 րոպե դադարի',
       install: 'Տեղադրել որպես հավելված',
       shortcuts: 'Ստեղներ. 1–7՝ տրամադրություն · P՝ դադար · T՝ Այսօր · D՝ Իմ օրերը',
-      dumpSaved: 'Մտքերի դատարկում'
+      dumpSaved: 'Մտքերի դատարկում',
+      yesDelete: 'Այո, ջնջել',
+      cancel: 'Չեղարկել',
+      keepTitle: 'Այս դիտարկիչում մի քանի պրոֆիլ կա',
+      keepIntro: 'Հիմա մեկ դիտարկիչում կարող է լինել միայն մեկ օգտատեր, որ մեկ մարդու գրառումները հասանելի չլինեն մյուսին։ Ընտրիր այն պրոֆիլը, որը պետք է մնա։',
+      keepConfirmTitle: 'Պահել «{name}» պրոֆիլը',
+      keepConfirmText: 'Մյուս պրոֆիլները ({n}) և նրանց բոլոր գրառումները կջնջվեն։ Սա հնարավոր չէ հետ բերել։ Համաձա՞յն ես։'
     },
     ru: {
       pause: 'Пауза',
@@ -201,7 +207,13 @@ window.MC_WORK = {
       breakNow: 'Время для паузы на 1 минуту',
       install: 'Установить как приложение',
       shortcuts: 'Клавиши: 1–7 настроение · P пауза · T Сегодня · D Мои дни',
-      dumpSaved: 'Разгрузка мыслей'
+      dumpSaved: 'Разгрузка мыслей',
+      yesDelete: 'Да, удалить',
+      cancel: 'Отмена',
+      keepTitle: 'В этом браузере несколько профилей',
+      keepIntro: 'Теперь в одном браузере может быть только один пользователь, чтобы записи одного человека не были доступны другому. Выбери профиль, который нужно оставить.',
+      keepConfirmTitle: 'Оставить профиль «{name}»',
+      keepConfirmText: 'Остальные профили ({n}) и все их записи будут удалены. Это нельзя отменить. Подтверждаешь?'
     },
     en: {
       pause: 'Pause',
@@ -248,7 +260,13 @@ window.MC_WORK = {
       breakNow: 'Time for a 1-minute pause',
       install: 'Install as an app',
       shortcuts: 'Keys: 1–7 mood · P pause · T Today · D My days',
-      dumpSaved: 'Brain dump'
+      dumpSaved: 'Brain dump',
+      yesDelete: 'Yes, delete',
+      cancel: 'Cancel',
+      keepTitle: 'This browser has several profiles',
+      keepIntro: 'Now one browser can have only one user, so one person’s notes are never visible to another. Choose the profile to keep.',
+      keepConfirmTitle: 'Keep the “{name}” profile',
+      keepConfirmText: 'The other profiles ({n}) and all their notes will be deleted. This can’t be undone. Do you agree?'
     }
   }
 };

@@ -125,6 +125,10 @@
   const saveProfiles = () => writeStorage(PROFILES_KEY, profiles);
   const activeProfile = () => profiles.list.find((p) => p.id === profiles.active) || null;
 
+  // Մեկ դիտարկիչ = մեկ օգտատեր։ Եթե սարքում մի քանի պրոֆիլ կա (հին տարբերակից),
+  // օգտատերը ընտրում է, թե որը պահի, և հաստատում է մյուսների ջնջումը։ Մինչ այդ ոչ մի պրոֆիլի տվյալ չի բացվում։
+  const needsChoice = () => profiles.list.length > 1;
+
   let state = null;
   const save = () => { if (profiles.active && state) writeStorage(dataKey(profiles.active), state); };
 
@@ -143,7 +147,10 @@
     selectedDate: null,
     quiz: null,       // { step, answers: [] } թեստի ընթացքում
     lastBreak: Date.now(),
-    installPrompt: null
+    installPrompt: null,
+    keepChoice: null,      // պահվող պրոֆիլի id (մի քանի պրոֆիլի դեպքում)
+    confirmDelete: false,  // պրոֆիլի ջնջման հաստատում
+    chooseLang: null
   };
   const saveDrafts = () => {
     if (profiles.active) writeStorage(draftKey(profiles.active), { journal: ui.draft, evening: ui.eveningDraft });
@@ -168,6 +175,7 @@
   }
 
   function createProfile(name, lang) {
+    profiles.list.forEach((p) => deleteProfile(p.id));
     const id = newId();
     profiles.list.push({ id, name, createdAt: new Date().toISOString() });
     writeStorage(dataKey(id), freshState(lang));
@@ -183,7 +191,8 @@
     if (profiles.active === id) {
       profiles.active = null;
       state = null;
-      if (profiles.list.length) loadProfile(profiles.list[0].id);
+      ui.profileMenuOpen = false;
+      ui.view = 'today';
     }
     saveProfiles();
   }
@@ -213,11 +222,10 @@
     save();
   }
 
-  const curLang = () => state?.lang || ui.onboarding?.lang || 'hy';
+  const curLang = () => state?.lang || ui.onboarding?.lang || ui.chooseLang || 'hy';
   const t = (key, vars = {}) =>
     C.ui[curLang()][key].replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '');
 
-  const initial = (name) => (Array.from(name.trim())[0] || '•').toUpperCase();
 
   function greeting() {
     const name = activeProfile()?.name;
@@ -625,17 +633,30 @@
             <span>${esc(t('pause'))}</span>
           </button>
           <button class="lang-toggle" data-action="lang-toggle" aria-expanded="${ui.langMenuOpen}" aria-label="${esc(t('language'))}">${lang.toUpperCase()}</button>
-          <button class="avatar" data-action="profile-toggle" aria-expanded="${ui.profileMenuOpen}" aria-label="${esc(t('profiles'))}">${esc(initial(me?.name || ''))}</button>
+          <button class="user-btn" data-action="profile-toggle" aria-expanded="${ui.profileMenuOpen}" aria-controls="profile-panel" title="${esc(t('profile'))}">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><circle cx="12" cy="8" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4.8 19.5c1.2-3.3 3.9-5 7.2-5s6 1.7 7.2 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span class="user-name">${esc(me?.name || t('profile'))}</span>
+          </button>
         </div>
       </header>
       ${ui.profileMenuOpen ? `
-        <div class="profile-menu" role="group" aria-label="${esc(t('profiles'))}">
-          ${profiles.list.map((p) => `
-            <button data-action="switch-profile" data-id="${p.id}" aria-pressed="${p.id === profiles.active}">
-              <span class="avatar avatar--sm" aria-hidden="true">${esc(initial(p.name))}</span>${esc(p.name || '—')}
-            </button>`).join('')}
-          <button data-action="add-profile" class="profile-add">+ ${esc(t('addProfile'))}</button>
-        </div>` : ''}
+        <section class="profile-panel" id="profile-panel" aria-label="${esc(t('profile'))}">
+          <p class="profile-k">${esc(t('profile'))}</p>
+          <p class="profile-name">${esc(me?.name || '')}</p>
+          <p class="journal-hint">${esc(t('profilesHint'))}</p>
+          ${ui.confirmDelete ? `
+            <div class="confirm-box" role="alertdialog" aria-labelledby="confirm-del">
+              <p id="confirm-del">${esc(t('confirmDeleteProfile', { name: me?.name || '' }))}</p>
+              <div class="journal-actions">
+                <button class="btn-danger" data-action="delete-confirm">${esc(t('yesDelete'))}</button>
+                <button class="btn-ghost" data-action="delete-cancel">${esc(t('cancel'))}</button>
+              </div>
+            </div>` : `
+            <div class="journal-actions">
+              <button class="btn-ghost" data-action="rename">${esc(t('changeName'))}</button>
+              <button class="link-danger" data-action="delete-profile">${esc(t('deleteProfile'))}</button>
+            </div>`}
+        </section>` : ''}
       ${ui.langMenuOpen ? `
         <div class="lang-menu" role="group" aria-label="${esc(t('language'))}">
           ${C.languages.map((l) => `<button data-action="set-lang" data-lang="${l.id}" lang="${l.id}" aria-pressed="${l.id === lang}">${esc(l.label)}</button>`).join('')}
@@ -661,7 +682,7 @@
 
   function renderOnboarding() {
     const ob = ui.onboarding || { step: 'lang' };
-    const canCancel = !!state?.lang && !ob.rename;
+    const canCancel = false;
     if (ob.step === 'name') {
       document.documentElement.lang = ob.lang;
       app.innerHTML = `
@@ -673,7 +694,9 @@
               placeholder="${esc(t('namePh'))}" value="${esc(ob.rename ? activeProfile()?.name || '' : '')}" required>
             <div class="journal-actions">
               <button type="submit" class="btn-primary">${esc(t('continue'))}</button>
-              ${ob.rename ? '' : `<button type="button" class="btn-ghost" data-action="ob-back">${esc(t('back'))}</button>`}
+              ${ob.rename
+                ? (activeProfile()?.name ? `<button type="button" class="btn-ghost" data-action="ob-cancel">${esc(t('back'))}</button>` : '')
+                : `<button type="button" class="btn-ghost" data-action="ob-back">${esc(t('back'))}</button>`}
             </div>
           </form>
         </section>`;
@@ -1238,16 +1261,22 @@
     'ob-cancel': () => { ui.onboarding = null; },
     'lang-toggle': () => { ui.langMenuOpen = !ui.langMenuOpen; ui.profileMenuOpen = false; },
     'profile-toggle': () => { ui.profileMenuOpen = !ui.profileMenuOpen; ui.langMenuOpen = false; },
-    'switch-profile': (el) => {
-      if (el.dataset.id === profiles.active) ui.profileMenuOpen = false;
-      else loadProfile(el.dataset.id);
+    rename: () => { ui.profileMenuOpen = false; ui.onboarding = { step: 'name', lang: state.lang, rename: true }; },
+    'delete-profile': () => { ui.profileMenuOpen = true; ui.confirmDelete = true; window.scrollTo(0, 0); },
+    'delete-cancel': () => { ui.confirmDelete = false; },
+    'delete-confirm': () => {
+      const me = activeProfile();
+      ui.confirmDelete = false;
+      if (me) deleteProfile(me.id);
       window.scrollTo(0, 0);
     },
-    'add-profile': () => { ui.profileMenuOpen = false; ui.onboarding = { step: 'lang' }; },
-    'delete-profile': () => {
-      const me = activeProfile();
-      if (!me || !confirm(t('confirmDeleteProfile', { name: me.name }))) return false;
-      deleteProfile(me.id);
+    'keep-pick': (el) => { ui.keepChoice = el.dataset.id; },
+    'keep-back': () => { ui.keepChoice = null; },
+    'keep-confirm': () => {
+      const keep = ui.keepChoice;
+      profiles.list.filter((x) => x.id !== keep).forEach((x) => deleteProfile(x.id));
+      ui.keepChoice = null;
+      loadProfile(keep);
       window.scrollTo(0, 0);
     },
     'set-lang': (el) => { state.lang = el.dataset.lang; ui.langMenuOpen = false; save(); },
@@ -1590,7 +1619,38 @@
 
   // ---------- Boot ----------
 
+  // Մի քանի պրոֆիլ → ընտրել մեկը և հաստատել մյուսների ջնջումը։ Ցույց ենք տալիս միայն անունները։
+  function renderChooseProfile() {
+    document.documentElement.lang = curLang();
+    const keep = profiles.list.find((x) => x.id === ui.keepChoice);
+    const others = profiles.list.filter((x) => x.id !== ui.keepChoice);
+    const nameOf = (x) => x.name || '—';
+    const mark = `<div class="mark scene" data-sky="${skyPhase()}" aria-hidden="true">${sceneSvg()}</div>`;
+    app.innerHTML = keep ? `
+      <section class="onboarding">
+        ${mark}
+        <h1 class="onboarding-title">${esc(t('keepConfirmTitle', { name: nameOf(keep) }))}</h1>
+        <div class="confirm-box" role="alertdialog" aria-labelledby="keep-q">
+          <p id="keep-q">${esc(t('keepConfirmText', { n: others.length }))}</p>
+          <ul class="keep-list">${others.map((x) => `<li>${esc(nameOf(x))}</li>`).join('')}</ul>
+          <div class="journal-actions">
+            <button class="btn-danger" data-action="keep-confirm">${esc(t('yesDelete'))}</button>
+            <button class="btn-ghost" data-action="keep-back">${esc(t('back'))}</button>
+          </div>
+        </div>
+      </section>` : `
+      <section class="onboarding">
+        ${mark}
+        <h1 class="onboarding-title">${esc(t('keepTitle'))}</h1>
+        <p class="sheet-intro">${esc(t('keepIntro'))}</p>
+        <div class="lang-list">
+          ${profiles.list.map((x) => `<button class="lang-option" data-action="keep-pick" data-id="${x.id}">${esc(nameOf(x))}</button>`).join('')}
+        </div>
+      </section>`;
+  }
+
   function render() {
+    if (needsChoice()) { renderChooseProfile(); return; }
     if (ui.onboarding || !state?.lang || !C.ui[state.lang]) renderOnboarding();
     else {
       document.documentElement.lang = state.lang;
@@ -1608,7 +1668,8 @@
     }
   });
 
-  if (profiles.active && profiles.list.some((p) => p.id === profiles.active)) loadProfile(profiles.active);
+  if (needsChoice()) ui.chooseLang = readStorage(dataKey(profiles.active || profiles.list[0].id))?.lang || null;
+  else if (profiles.active && profiles.list.some((p) => p.id === profiles.active)) loadProfile(profiles.active);
   render();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

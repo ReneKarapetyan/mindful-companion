@@ -73,9 +73,10 @@ window.MC_CONTENT = {
       addProfile: "Նոր օգտատեր",
       profile: "Պրոֆիլ",
       nameLabel: "Անուն / նիկնեյմ",
-      deleteProfile: "Ջնջել այս պրոֆիլը",
-      confirmDeleteProfile: "Ջնջե՞լ «{name}» պրոֆիլը և նրա բոլոր տվյալները։ Սա հնարավոր չէ հետ բերել։",
-      profilesHint: "Նույն սարքով կարող են օգտվել մի քանի մարդ. ամեն մեկի տվյալները պահվում են առանձին։ Օգտատերերի միջև փոխվիր վերևի աջ կլոր կոճակով։"
+      deleteProfile: "Ջնջել իմ պրոֆիլը և տվյալները",
+      confirmDeleteProfile: "Ջնջե՞լ «{name}» պրոֆիլը և բոլոր գրառումները։ Սա հնարավոր չէ հետ բերել։ Եթե պետք է, նախ արտահանիր JSON-ը։ Հետո կարող ես նորից գրանցվել։",
+      profilesHint: "Մեկ դիտարկիչ, մեկ օգտատեր։ Քո տվյալները պահվում են միայն այս դիտարկիչում և չեն ուղարկվում ոչ մի տեղ։ Նոր օգտատեր գրանցելու համար նախ ջնջիր այս պրոֆիլը։",
+      changeName: "Փոխել անունը"
     },
     ru: {
       chooseLanguage: "Выберите язык",
@@ -141,9 +142,10 @@ window.MC_CONTENT = {
       addProfile: "Новый пользователь",
       profile: "Профиль",
       nameLabel: "Имя / никнейм",
-      deleteProfile: "Удалить этот профиль",
-      confirmDeleteProfile: "Удалить профиль «{name}» и все его данные? Это нельзя отменить.",
-      profilesHint: "Одним устройством могут пользоваться несколько человек — данные каждого хранятся отдельно. Переключайся между пользователями круглой кнопкой справа вверху."
+      deleteProfile: "Удалить мой профиль и данные",
+      confirmDeleteProfile: "Удалить профиль «{name}» и все записи? Это нельзя отменить. Если нужно, сначала экспортируй JSON. Потом можно зарегистрироваться снова.",
+      profilesHint: "Один браузер, один пользователь. Твои данные хранятся только в этом браузере и никуда не отправляются. Чтобы зарегистрировать нового пользователя, сначала удали этот профиль.",
+      changeName: "Изменить имя"
     },
     en: {
       chooseLanguage: "Select your language",
@@ -209,9 +211,10 @@ window.MC_CONTENT = {
       addProfile: "New user",
       profile: "Profile",
       nameLabel: "Name / nickname",
-      deleteProfile: "Delete this profile",
-      confirmDeleteProfile: "Delete the “{name}” profile and all its data? This can't be undone.",
-      profilesHint: "Several people can use this device — each person's data is stored separately. Switch users with the round button at the top right."
+      deleteProfile: "Delete my profile and data",
+      confirmDeleteProfile: "Delete the “{name}” profile and all notes? This can't be undone. Export JSON first if you need it. You can register again afterwards.",
+      profilesHint: "One browser, one user. Your data stays only in this browser and is never sent anywhere. To register a new user, delete this profile first.",
+      changeName: "Change name"
     }
   },
 

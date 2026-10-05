@@ -1,5 +1,5 @@
 // Offline աջակցություն. stale-while-revalidate։ Ֆայլեր փոխելիս ավելացրու CACHE-ի տարբերակը։
-const CACHE = 'mc-v7';
+const CACHE = 'mc-v8';
 const SHELL = [
   './',
   './index.html',
