@@ -216,17 +216,27 @@ window.MC_CONTENT = {
   },
 
   // Կոնտեքստի պիտակներ (ըստ ցանկության, մի քանիսը միասին)
+  // group: "work" | "life" — check-in-ում ցուցադրվում են երկու խմբով
   tags: [
-    { id: "work", label: { hy: "Աշխատանք", ru: "Работа", en: "Work" } },
-    { id: "study", label: { hy: "Ուսում", ru: "Учёба", en: "Study" } },
-    { id: "family", label: { hy: "Ընտանիք", ru: "Семья", en: "Family" } },
-    { id: "friends", label: { hy: "Ընկերներ", ru: "Друзья", en: "Friends" } },
-    { id: "love", label: { hy: "Հարաբերություններ", ru: "Отношения", en: "Relationship" } },
-    { id: "health", label: { hy: "Առողջություն", ru: "Здоровье", en: "Health" } },
-    { id: "sleep", label: { hy: "Քուն", ru: "Сон", en: "Sleep" } },
-    { id: "sport", label: { hy: "Սպորտ", ru: "Спорт", en: "Exercise" } },
-    { id: "money", label: { hy: "Փող", ru: "Деньги", en: "Money" } },
-    { id: "leisure", label: { hy: "Ժամանց", ru: "Досуг", en: "Leisure" } }
+    { id: "work", group: "work", label: { hy: "Աշխատանք", ru: "Работа", en: "Work" } },
+    { id: "meetings", group: "work", label: { hy: "Հանդիպումներ", ru: "Встречи", en: "Meetings" } },
+    { id: "clients", group: "work", label: { hy: "Հաճախորդներ", ru: "Клиенты", en: "Clients" } },
+    { id: "deadlines", group: "work", label: { hy: "Ժամկետներ", ru: "Дедлайны", en: "Deadlines" } },
+    { id: "targets", group: "work", label: { hy: "Պլան / KPI", ru: "План / KPI", en: "Targets / KPIs" } },
+    { id: "workload", group: "work", label: { hy: "Ծանրաբեռնվածություն", ru: "Нагрузка", en: "Workload" } },
+    { id: "colleagues", group: "work", label: { hy: "Գործընկերներ", ru: "Коллеги", en: "Colleagues" } },
+    { id: "manager", group: "work", label: { hy: "Ղեկավար", ru: "Руководитель", en: "Manager" } },
+    { id: "screens", group: "work", label: { hy: "Էկրաններ", ru: "Экраны", en: "Screen time" } },
+    { id: "family", group: "life", label: { hy: "Ընտանիք", ru: "Семья", en: "Family" } },
+    { id: "friends", group: "life", label: { hy: "Ընկերներ", ru: "Друзья", en: "Friends" } },
+    { id: "love", group: "life", label: { hy: "Հարաբերություններ", ru: "Отношения", en: "Relationship" } },
+    { id: "health", group: "life", label: { hy: "Առողջություն", ru: "Здоровье", en: "Health" } },
+    { id: "sleep", group: "life", label: { hy: "Քուն", ru: "Сон", en: "Sleep" } },
+    { id: "sport", group: "life", label: { hy: "Սպորտ", ru: "Спорт", en: "Exercise" } },
+    { id: "money", group: "life", label: { hy: "Փող", ru: "Деньги", en: "Money" } },
+    { id: "commute", group: "life", label: { hy: "Ճանապարհ", ru: "Дорога", en: "Commute" } },
+    { id: "study", group: "life", label: { hy: "Ուսում", ru: "Учёба", en: "Study" } },
+    { id: "leisure", group: "life", label: { hy: "Ժամանց", ru: "Досуг", en: "Leisure" } }
   ],
 
   // Mood Meter-ի հերթականությամբ. հաճելի → տհաճ

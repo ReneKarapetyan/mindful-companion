@@ -7,7 +7,8 @@
   const J = window.MC_JOURNAL;
   const EM = window.MC_EMOTIONS;
   const R = window.MC_REFLECT;
-  Object.keys(R.ui).forEach((l) => Object.assign(C.ui[l], R.ui[l]));
+  const W = window.MC_WORK;
+  Object.keys(R.ui).forEach((l) => Object.assign(C.ui[l], R.ui[l], W.ui[l]));
   // Պրոֆիլներ. նույն սարքում մի քանի օգտատեր, ամեն մեկի տվյալները՝ առանձին բանալիով։
   const PROFILES_KEY = 'mindful-companion.profiles';
   const LEGACY_KEY = 'mindful-companion.v1';
@@ -16,9 +17,6 @@
   const draftKey = (id) => `mindful-companion.p.${id}.draft`;
   const NAME_MAX = 30;
   const LOCALES = { hy: 'hy-AM', ru: 'ru-RU', en: 'en-US' };
-  const BREATH_IN_MS = 4000;
-  const BREATH_OUT_MS = 6000;
-  const BREATH_CYCLES = 6; // 6 × 10 վրկ = 1 րոպե
   const EVENING_HOUR = 18;
   const HEAVY_EMOTIONS = ['emptiness', 'burnout', 'shame', 'loneliness'];
   const FORCE_EVENING = new URLSearchParams(location.search).has('evening'); // թեստի համար
@@ -42,6 +40,9 @@
   //     journal: [{ id, at, mood, emotion, kind, promptId, question, text }]
   //       kind: "guide" | "clarify" | "free" | "evening"
   //     done: { stressed: 2 },            — ավարտված սեսիաներ. տրամադրություն → ուղղորդող հարցի №
+  // resetFeedback: { sigh: { y, b, n } } — «Օգնե՞ց» պատասխանները ըստ պրակտիկայի
+  // tipFeedback: { "calm.1": 1 | -1 }    — ամփոփման առաջարկի գնահատականը
+  // breakEvery: 0 | 45 | 60 | 90         — ընդմիջման հիշեցում (րոպե), 0 = անջատված
   //   }
   // }
   // saved: [{ key, at }] — պահված քվոթեր. key = "d:<id>" (օրվա) կամ "m:<mood>:<index>"
@@ -140,7 +141,9 @@
     eveningDraft: '',
     calMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
     selectedDate: null,
-    quiz: null        // { step, answers: [] } թեստի ընթացքում
+    quiz: null,       // { step, answers: [] } թեստի ընթացքում
+    lastBreak: Date.now(),
+    installPrompt: null
   };
   const saveDrafts = () => {
     if (profiles.active) writeStorage(draftKey(profiles.active), { journal: ui.draft, evening: ui.eveningDraft });
@@ -501,9 +504,13 @@
     app.querySelector('#journal-input')?.focus({ preventScroll: true });
   }
 
+  // Երկ–ուրբ՝ «Աշխատանքային օրվա փակում» (անջատվել աշխատանքից), շաբ–կիր՝ սովորական երեկոյան ամփոփում։
+  const isWorkday = () => { const w = new Date().getDay(); return w >= 1 && w <= 5; };
+  const eveningSet = () => (isWorkday() ? W.eveningWork : J.evening);
+
   function eveningIndex() {
     const answered = answeredIds();
-    const i = J.evening.findIndex((_, k) => !answered.has(`evening.${k + 1}`));
+    const i = eveningSet().findIndex((_, k) => !answered.has(`evening.${k + 1}`));
     return i === -1 ? null : i;
   }
 
@@ -512,7 +519,7 @@
     if (!text) return app.querySelector('#evening-input')?.focus();
     const i = eveningIndex();
     if (i === null) return;
-    addEntry('evening', `evening.${i + 1}`, J.evening[i][state.lang], text);
+    addEntry('evening', `evening.${i + 1}`, eveningSet()[i][state.lang], text);
     ui.eveningDraft = '';
     saveDrafts();
     save();
@@ -613,6 +620,10 @@
           <p class="date">${esc(formatDate(new Date(), lang))}</p>
         </div>
         <div class="topbar-actions">
+          <button class="pause-btn" data-action="pause" aria-label="${esc(t('pauseTitle'))}" title="${esc(t('pause'))} (P)">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6v12M15 6v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span>${esc(t('pause'))}</span>
+          </button>
           <button class="lang-toggle" data-action="lang-toggle" aria-expanded="${ui.langMenuOpen}" aria-label="${esc(t('language'))}">${lang.toUpperCase()}</button>
           <button class="avatar" data-action="profile-toggle" aria-expanded="${ui.profileMenuOpen}" aria-label="${esc(t('profiles'))}">${esc(initial(me?.name || ''))}</button>
         </div>
@@ -718,14 +729,23 @@
 
           <div class="step mood--${mood.id}">
             <p class="step-q">${esc(t('tagsQ'))} <span class="optional">${esc(t('optional'))}</span></p>
-            <div class="chips chips--small">
-              ${C.tags.map((x) => `<button class="chip" data-action="tag" data-tag="${x.id}" aria-pressed="${d.tags.includes(x.id)}">${esc(x.label[lang])}</button>`).join('')}
-            </div>
+            ${['work', 'life'].map((g) => `
+              <p class="tag-group">${esc(t(g === 'work' ? 'groupWork' : 'groupLife'))}</p>
+              <div class="chips chips--small">
+                ${C.tags.filter((x) => x.group === g).map((x) => `<button class="chip" data-action="tag" data-tag="${x.id}" aria-pressed="${d.tags.includes(x.id)}">${esc(x.label[lang])}</button>`).join('')}
+              </div>`).join('')}
           </div>
 
           <div class="response mood--${mood.id}" role="status">
             <p>${esc(mood.response[lang])}</p>
-            ${mood.breathing ? `<button class="breathe-btn" data-action="breathe">${esc(t('breathe'))}</button>` : ''}
+            <p class="try-k">${esc(t('tryNow'))}</p>
+            <div class="try-row">
+              ${rankedResets(mood.id).map(({ r, helped }) => `
+                <button class="try-btn" data-action="practice" data-id="${r.id}">
+                  <span>${esc(r.name[lang])}</span>
+                  <small>${esc(helped ? t('helpedBefore') : t('seconds', { n: resetSeconds(r) }))}</small>
+                </button>`).join('')}
+            </div>
           </div>
 
           ${needsSupport() ? `<p class="support-note" role="note">${esc(t('supportNote'))}</p>` : ''}` : ''}
@@ -751,7 +771,11 @@
           <p class="sum-k">${esc(t('summaryWe'))}</p>
           <p class="sum-p">${esc(sum.insight[lang])}</p>
           <p class="sum-k">${esc(t('summaryTry'))}</p>
-          <p class="sum-p sum-tip">${esc(sum.tip[lang])}</p>` : ''}
+          <p class="sum-p sum-tip">${esc(sum.tip[lang])}</p>
+          <div class="fb-row" role="group" aria-label="${esc(t('helped'))}">
+            <button class="fb-btn" data-action="tip-fb" data-key="${base}" data-v="1" aria-pressed="${state.tipFeedback?.[base] === 1}">${esc(t('tipHelpful'))}</button>
+            <button class="fb-btn" data-action="tip-fb" data-key="${base}" data-v="-1" aria-pressed="${state.tipFeedback?.[base] === -1}">${esc(t('tipNot'))}</button>
+          </div>` : ''}
         <p class="journal-hint">${esc(t('summaryNext'))}</p>
       </div>`;
   }
@@ -796,19 +820,21 @@
 
   function eveningHtml() {
     const i = eveningIndex();
+    const set = eveningSet();
+    const work = isWorkday();
     const entries = today().journal.filter((e) => e.kind === 'evening');
     return `
       <section class="journal evening" aria-labelledby="evening-h">
-        <h2 id="evening-h" class="section-h">☾ ${esc(t('eveningTitle'))}</h2>
+        <h2 id="evening-h" class="section-h">☾ ${esc(t(work ? 'workClose' : 'eveningTitle'))}</h2>
         <div class="card">
           ${i === null
-            ? `<p class="evening-done">${esc(t('eveningDone'))}</p>`
+            ? `<p class="evening-done">${esc(t(work ? 'workClosed' : 'eveningDone'))}</p>`
             : `
-              <label for="evening-input" class="journal-q">${esc(J.evening[i][state.lang])}</label>
+              <label for="evening-input" class="journal-q">${esc(set[i][state.lang])}</label>
               <textarea id="evening-input" data-draft="evening" rows="3" placeholder="${esc(t('placeholder'))}">${esc(ui.eveningDraft)}</textarea>
               <div class="journal-actions">
                 <button class="btn-primary" data-action="e-save">${esc(t('save'))}</button>
-                <span class="evening-step">${i + 1} / ${J.evening.length}</span>
+                <span class="evening-step">${i + 1} / ${set.length}</span>
               </div>`}
         </div>
         ${entries.length ? `<ol class="notes">${entries.map((e) => noteHtml(e, todayKey())).join('')}</ol>` : ''}
@@ -825,6 +851,8 @@
     app.innerHTML = `
       ${headerHtml()}
 
+      <div class="today-grid">
+      <div class="col-a">
       <article class="quote">
         <div class="scene" data-sky="${skyPhase()}">
           ${sceneSvg()}
@@ -837,12 +865,15 @@
         </div>
       </article>
 
+      </div>
+      <div class="col-b">
       ${checkinHtml(d)}
 
       ${mood ? journalHtml(mood.id) : ''}
 
       ${isEvening ? eveningHtml() : ''}
-
+      </div>
+      <div class="col-a">
       ${mood ? `
         <section class="mq mood--${mood.id}" aria-labelledby="mq-h">
           <h2 id="mq-h" class="section-h">${esc(t('moodQuotes'))}</h2>
@@ -854,8 +885,10 @@
             </div>
           </div>
         </section>` : ''}
+      </div>
+      </div>
 
-      <footer class="footnote"><p>${esc(t('tomorrow'))}</p></footer>`;
+      <footer class="footnote"><p>${esc(t('tomorrow'))}</p><p class="kbd-hint">${esc(t('shortcuts'))}</p></footer>`;
   }
 
   // ---------- Views: my days (dashboard) ----------
@@ -1034,10 +1067,108 @@
         </div>
         <p class="journal-hint">${esc(t('reminderHint'))}</p>
       </section>
+      <section class="card">
+        <h2 class="section-h">${esc(t('breakTitle'))}</h2>
+        <div class="chips chips--small" role="group" aria-label="${esc(t('breakTitle'))}">
+          ${[0, 45, 60, 90].map((n) => `<button class="chip" data-action="break-every" data-n="${n}" aria-pressed="${(state.breakEvery || 0) === n}">${esc(n ? t('breakEvery', { n }) : t('breakOff'))}</button>`).join('')}
+        </div>
+        <p class="journal-hint">${esc(t('breakHint'))}</p>
+        ${ui.installPrompt ? `<div class="journal-actions"><button class="btn-ghost" data-action="install">${esc(t('install'))}</button></div>` : ''}
+      </section>
       <p class="data-links">${esc(t('myData'))}:
         <button data-action="export" data-format="json">JSON</button>
         <button data-action="export" data-format="csv">CSV</button>
       </p>`;
+  }
+
+  // ---------- Practices (1-minute pauses) ----------
+
+  const resetById = (id) => W.resets.find((r) => r.id === id);
+  const resetSeconds = (r) => r.kind === 'breath'
+    ? r.cycles * r.pattern.reduce((a, x) => a + x.s, 0)
+    : r.kind === 'write' ? r.s : r.steps.reduce((a, x) => a + x.s, 0);
+  const resetScore = (id) => {
+    const f = state.resetFeedback?.[id];
+    return f ? f.y * 2 + f.b - f.n * 2 : 0;
+  };
+
+  // Ըստ տրամադրության 2 առաջարկ։ Եթե օգտատիրոջ գնահատականներով ինչ-որ պրակտիկա օգնել է, այն առաջինն է։
+  function rankedResets(mood) {
+    const base = W.recommend[mood] || ['sigh', 'eyes'];
+    const best = W.resets.map((r) => r.id).filter((id) => resetScore(id) > 0)
+      .sort((a, b) => resetScore(b) - resetScore(a))[0];
+    const ids = best ? [best, ...base.filter((id) => id !== best)] : base;
+    return ids.slice(0, 2).map((id) => ({ r: resetById(id), helped: id === best }));
+  }
+
+  function recordReset(id, v) {
+    const fb = (state.resetFeedback ||= {});
+    const f = (fb[id] ||= { y: 0, b: 0, n: 0 });
+    f[v] += 1;
+    save();
+  }
+
+  // ---------- Your week ----------
+
+  const PLEASANT = ['great', 'calm'];
+  const BRIGHT_PROMPTS = ['calm.1', 'calm.2', 'great.2', 'evening.1'];
+
+  function weekHtml() {
+    const lang = state.lang;
+    const keys = [];
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      keys.push(dateKey(day));
+    }
+    const days = keys.map((k) => state.days[k]).filter(Boolean);
+    const logged = days.filter((d) => d.mood);
+    const head = `<h2 class="section-h">${esc(t('weekTitle'))}</h2>`;
+    if (!logged.length) return `<section class="card week-card">${head}<p class="muted">${esc(t('weekEmpty'))}</p></section>`;
+
+    const good = logged.filter((d) => PLEASANT.includes(d.mood));
+    const heavy = logged.filter((d) => !PLEASANT.includes(d.mood));
+    const topTags = (list) => {
+      const f = {};
+      list.forEach((d) => (d.tags || []).forEach((x) => (f[x] = (f[x] || 0) + 1)));
+      return Object.entries(f).filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([id]) => id);
+    };
+    const heavyTags = topTags(heavy);
+    const goodTags = topTags(good);
+    const tagChips = (ids) => ids.map((id) => `<span class="chip chip--static">${esc(tagById(id).label[lang])}</span>`).join('');
+
+    const bright = days.flatMap((d) => d.journal || [])
+      .filter((e) => BRIGHT_PROMPTS.includes(e.promptId) && e.text).slice(-3);
+
+    const best = W.resets.map((r) => r.id).filter((id) => resetScore(id) > 0)
+      .sort((a, b) => resetScore(b) - resetScore(a))[0];
+
+    // Պարզ, բացատրելի կանոններ. ոչ մի ախտորոշում։
+    let sug = 'sugDefault';
+    if (heavy.length >= 5) sug = 'sugHeavy';
+    else if (heavyTags.some((x) => ['deadlines', 'workload', 'targets'].includes(x))) sug = 'sugDeadlines';
+    else if (heavyTags.includes('meetings')) sug = 'sugMeetings';
+    else if (heavyTags.includes('clients')) sug = 'sugClients';
+    else if (heavyTags.includes('screens')) sug = 'sugScreens';
+    else if (heavyTags.includes('sleep')) sug = 'sugSleep';
+    else if (good.length / logged.length >= 0.6) sug = 'sugGood';
+
+    const pGood = Math.round((good.length / logged.length) * 100);
+    return `
+      <section class="card week-card">
+        ${head}
+        <p class="muted">${esc(t('weekDays', { n: logged.length }))}</p>
+        <div class="balance" role="img" aria-label="${esc(t('weekPleasant'))} ${good.length}, ${esc(t('weekHeavy'))} ${heavy.length}">
+          <span class="balance-good" style="width:${pGood}%"></span>
+        </div>
+        <p class="balance-legend"><span>${esc(t('weekPleasant'))} · ${good.length}</span><span>${esc(t('weekHeavy'))} · ${heavy.length}</span></p>
+        ${heavyTags.length ? `<p class="sum-k">${esc(t('weekHeavyTags'))}</p><p class="day-tags">${tagChips(heavyTags)}</p>` : ''}
+        ${goodTags.length ? `<p class="sum-k">${esc(t('weekGoodTags'))}</p><p class="day-tags">${tagChips(goodTags)}</p>` : ''}
+        ${bright.length ? `<p class="sum-k">${esc(t('weekBright'))}</p><ul class="bright">${bright.map((e) => `<li>${esc(e.text)}</li>`).join('')}</ul>` : ''}
+        ${best ? `<p class="sum-k">${esc(t('weekHelpful'))}</p><p class="sum-p"><button class="link-btn" data-action="practice" data-id="${best}">${esc(resetById(best).name[lang])}</button></p>` : ''}
+        <p class="sum-k">${esc(t('weekTry'))}</p>
+        <p class="sum-p sum-tip">${esc(t(sug))}</p>
+      </section>`;
   }
 
   // «Ի՞նչ հանգիստ է քեզ պետք». առաջարկ, ոչ թե գնահատական։ Ցույց ենք տալիս միայն ամենաբարձր պատասխանները։
@@ -1088,6 +1219,7 @@
       ${headerHtml()}
       <div class="days">
         ${streakHtml()}
+        ${weekHtml()}
         ${calendarHtml()}
         ${dayDetailHtml()}
         ${distributionHtml()}
@@ -1142,7 +1274,29 @@
       d.tags = d.tags.includes(id) ? d.tags.filter((x) => x !== id) : [...d.tags, id];
       save();
     },
-    breathe: () => { openBreathing(); return false; },
+    breathe: () => { openPractice('sigh'); return false; },
+    practice: (el) => { openPractice(el.dataset.id); return false; },
+    pause: () => { openPauseSheet(); return false; },
+    'tip-fb': (el) => {
+      const v = Number(el.dataset.v);
+      state.tipFeedback = { ...(state.tipFeedback || {}) };
+      if (state.tipFeedback[el.dataset.key] === v) delete state.tipFeedback[el.dataset.key];
+      else state.tipFeedback[el.dataset.key] = v;
+      save();
+    },
+    'break-every': (el) => {
+      state.breakEvery = Number(el.dataset.n);
+      ui.lastBreak = Date.now();
+      save();
+      if (state.breakEvery && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    },
+    install: () => {
+      const p = ui.installPrompt;
+      ui.installPrompt = null;
+      p?.prompt();
+    },
     'mq-step': (el) => { stepMoodQuote(today().mood, Number(el.dataset.step)); return false; },
     'j-save': () => { saveJournal(); return false; },
     'j-other': () => { ui.guideIdx = firstUnanswered(today().mood, ui.guideIdx + 1); },
@@ -1235,59 +1389,204 @@
     if (Math.abs(dx) > 40) stepMoodQuote(today().mood, dx < 0 ? 1 : -1);
   });
 
-  // ---------- Breathing practice ----------
+  // ---------- Practice player (breath / steps / write) ----------
 
-  function openBreathing() {
+  function overlayShell(cls) {
     const overlay = document.createElement('div');
-    overlay.className = 'breath-overlay';
+    overlay.className = `breath-overlay ${cls}`;
     overlay.dataset.sky = skyPhase();
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.innerHTML = `
-      <div class="breath-circle" aria-hidden="true"></div>
-      <p class="breath-label" aria-live="polite"></p>
-      <div class="breath-progress" aria-hidden="true"><span></span></div>
-      <button class="breath-close">${esc(t('close'))}</button>`;
     document.body.appendChild(overlay);
-
-    const circle = overlay.querySelector('.breath-circle');
-    const label = overlay.querySelector('.breath-label');
-    const bar = overlay.querySelector('.breath-progress span');
-    const closeBtn = overlay.querySelector('.breath-close');
+    const prevFocus = document.activeElement;
     const timers = [];
-    const total = BREATH_CYCLES * (BREATH_IN_MS + BREATH_OUT_MS);
-
     const close = () => {
       timers.forEach(clearTimeout);
       document.removeEventListener('keydown', onKey);
       overlay.remove();
-      app.querySelector('.breathe-btn')?.focus();
+      prevFocus?.focus?.();
     };
     const onKey = (e) => e.key === 'Escape' && close();
-    closeBtn.addEventListener('click', close);
     document.addEventListener('keydown', onKey);
-    closeBtn.focus();
+    return { overlay, timers, close };
+  }
 
-    const phase = (inhale) => {
-      circle.style.transitionDuration = `${inhale ? BREATH_IN_MS : BREATH_OUT_MS}ms`;
-      circle.classList.toggle('is-in', inhale);
-      label.textContent = t(inhale ? 'inhale' : 'exhale');
+  function openPauseSheet() {
+    const lang = state.lang;
+    const mood = today().mood;
+    const top = new Set(mood ? rankedResets(mood).map((x) => x.r.id) : []);
+    const { overlay, close } = overlayShell('pause-sheet');
+    overlay.setAttribute('aria-labelledby', 'pause-h');
+    overlay.innerHTML = `
+      <div class="sheet">
+        <h2 id="pause-h" class="sheet-h">${esc(t('pauseTitle'))}</h2>
+        <p class="sheet-intro">${esc(t('pauseIntro'))}</p>
+        <ul class="reset-list">
+          ${W.resets.map((r) => `
+            <li>
+              <button class="reset-item" data-id="${r.id}">
+                <span class="reset-name">${esc(r.name[lang])}${top.has(r.id) ? ` <em>${esc(t('recommended'))}</em>` : ''}</span>
+                <span class="reset-about">${esc(r.about[lang])}</span>
+                <span class="reset-time">${esc(t('seconds', { n: resetSeconds(r) }))}</span>
+              </button>
+            </li>`).join('')}
+        </ul>
+        <button class="breath-close">${esc(t('close'))}</button>
+      </div>`;
+    overlay.querySelector('.breath-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+      const item = e.target.closest('.reset-item');
+      if (item) { close(); openPractice(item.dataset.id); }
+      else if (e.target === overlay) close();
+    });
+    overlay.querySelector('.reset-item')?.focus();
+  }
+
+  function openPractice(id) {
+    const r = resetById(id);
+    if (!r) return;
+    const lang = state.lang;
+    const { overlay, timers, close } = overlayShell(`practice practice--${r.kind}`);
+    const total = resetSeconds(r) * 1000;
+    overlay.innerHTML = `
+      <p class="practice-name">${esc(r.name[lang])}</p>
+      ${r.kind === 'write'
+        ? `<textarea class="dump-input" rows="7" aria-label="${esc(r.name[lang])}" placeholder="${esc(r.prompt[lang])}"></textarea>`
+        : '<div class="breath-circle" aria-hidden="true"></div>'}
+      <p class="breath-label" aria-live="polite"></p>
+      <div class="breath-progress" aria-hidden="true"><span></span></div>
+      <div class="practice-end" hidden>
+        <p class="practice-q">${esc(t('helped'))}</p>
+        <div class="practice-fb">
+          <button data-v="y">${esc(t('helpYes'))}</button>
+          <button data-v="b">${esc(t('helpBit'))}</button>
+          <button data-v="n">${esc(t('helpNo'))}</button>
+        </div>
+      </div>
+      <button class="breath-close">${esc(t('close'))}</button>`;
+
+    const circle = overlay.querySelector('.breath-circle');
+    const label = overlay.querySelector('.breath-label');
+    const bar = overlay.querySelector('.breath-progress span');
+    const end = overlay.querySelector('.practice-end');
+    const dump = overlay.querySelector('.dump-input');
+    const closeBtn = overlay.querySelector('.breath-close');
+
+    const finish = () => {
+      if (dump?.value.trim()) {
+        addEntry('free', 'dump', t('dumpSaved'), dump.value.trim());
+        save();
+      }
+      close();
+      render();
+    };
+    closeBtn.addEventListener('click', finish);
+    end.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-v]');
+      if (!b) return;
+      recordReset(r.id, b.dataset.v);
+      end.innerHTML = `<p class="practice-q">${esc(t('thanks'))}</p>`;
+      timers.push(setTimeout(finish, 1400));
+    });
+
+    const done = () => {
+      ui.lastBreak = Date.now();
+      overlay.classList.add('is-done');
+      label.textContent = r.kind === 'write' ? r.after[lang] : t('done');
+      end.hidden = false;
+      end.querySelector('button')?.focus();
     };
 
-    for (let i = 0; i < BREATH_CYCLES; i++) {
-      const start = i * (BREATH_IN_MS + BREATH_OUT_MS);
-      timers.push(setTimeout(() => phase(true), start + 50));
-      timers.push(setTimeout(() => phase(false), start + BREATH_IN_MS));
+    if (r.kind === 'breath') {
+      const SCALE = { in: 1, in2: 1.08, out: 0.55 };
+      let at = 50;
+      for (let c = 0; c < r.cycles; c++) {
+        r.pattern.forEach((ph) => {
+          timers.push(setTimeout(() => {
+            if (SCALE[ph.p]) {
+              circle.style.transitionDuration = `${ph.s * 1000}ms`;
+              circle.style.transform = `scale(${SCALE[ph.p]})`;
+            }
+            label.textContent = ph.l[lang];
+          }, at));
+          at += ph.s * 1000;
+        });
+      }
+      closeBtn.focus();
+    } else if (r.kind === 'steps') {
+      let at = 50;
+      r.steps.forEach((st, i) => {
+        timers.push(setTimeout(() => {
+          label.textContent = st.l[lang];
+          circle.dataset.step = `${i + 1} / ${r.steps.length}`;
+          circle.classList.toggle('is-in', i % 2 === 0);
+        }, at));
+        at += st.s * 1000;
+      });
+      closeBtn.focus();
+    } else {
+      label.textContent = r.about[lang];
+      dump.focus();
     }
-    timers.push(setTimeout(() => {
-      label.textContent = t('done');
-      overlay.classList.add('is-done');
-    }, total));
+    timers.push(setTimeout(done, total + 50));
 
     void bar.offsetWidth; // force layout so the transition starts from scaleX(0)
     bar.style.transitionDuration = `${total}ms`;
     bar.style.transform = 'scaleX(1)';
   }
+
+  // ---------- Break reminder (while the page is open) ----------
+
+  const baseTitle = document.title;
+  setInterval(() => {
+    if (!state?.breakEvery || document.querySelector('.breath-overlay')) return;
+    if (Date.now() - ui.lastBreak < state.breakEvery * 60000) return;
+    ui.lastBreak = Date.now();
+    const msg = t('breakNow');
+    if (document.visibilityState === 'hidden' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const n = new Notification('Mindful Companion', { body: msg, icon: 'icon.svg', tag: 'mc-break' });
+        n.onclick = () => { window.focus(); openPauseSheet(); n.close(); };
+      } catch { /* ignore */ }
+    }
+    document.title = `⏸ ${msg}`;
+    showToast(msg, () => openPauseSheet());
+  }, 30000);
+
+  function showToast(msg, onOpen) {
+    document.querySelector('.toast')?.remove();
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.setAttribute('role', 'status');
+    el.innerHTML = `<span>${esc(msg)}</span><button>${esc(t('start'))}</button><button aria-label="${esc(t('close'))}">×</button>`;
+    const [go, x] = el.querySelectorAll('button');
+    const dismiss = () => { el.remove(); document.title = baseTitle; };
+    go.addEventListener('click', () => { dismiss(); onOpen(); });
+    x.addEventListener('click', dismiss);
+    document.body.appendChild(el);
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    ui.installPrompt = e;
+    if (ui.view === 'days' && state?.lang) render();
+  });
+
+  // ---------- Keyboard shortcuts (desktop) ----------
+
+  document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey || !state?.lang || ui.onboarding) return;
+    if (e.target.closest?.('input, textarea, select, [contenteditable]') || document.querySelector('.breath-overlay')) return;
+    const k = e.key.toLowerCase();
+    if (k >= '1' && k <= '7' && ui.view === 'today') {
+      app.querySelectorAll('[data-action="mood"]')[Number(k) - 1]?.click();
+    } else if (k === 'p') {
+      openPauseSheet();
+    } else if (k === 't' || k === 'd') {
+      app.querySelector(`[data-action="set-view"][data-view="${k === 't' ? 'today' : 'days'}"]`)?.click();
+    } else return;
+    e.preventDefault();
+  });
 
   // ---------- Boot ----------
 
