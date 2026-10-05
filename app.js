@@ -1271,6 +1271,13 @@
       window.scrollTo(0, 0);
     },
     'keep-pick': (el) => { ui.keepChoice = el.dataset.id; },
+    'keep-none': () => { ui.keepChoice = 'none'; },
+    'delete-all-confirm': () => {
+      profiles.list.slice().forEach((x) => deleteProfile(x.id));
+      ui.keepChoice = null;
+      ui.onboarding = null;
+      window.scrollTo(0, 0);
+    },
     'keep-back': () => { ui.keepChoice = null; },
     'keep-confirm': () => {
       const keep = ui.keepChoice;
@@ -1626,6 +1633,22 @@
     const others = profiles.list.filter((x) => x.id !== ui.keepChoice);
     const nameOf = (x) => x.name || '—';
     const mark = `<div class="mark scene" data-sky="${skyPhase()}" aria-hidden="true">${sceneSvg()}</div>`;
+    if (ui.keepChoice === 'none') {
+      app.innerHTML = `
+        <section class="onboarding">
+          ${mark}
+          <h1 class="onboarding-title">${esc(t('deleteAllTitle'))}</h1>
+          <div class="confirm-box" role="alertdialog" aria-labelledby="del-all-q">
+            <p id="del-all-q">${esc(t('deleteAllText', { n: profiles.list.length }))}</p>
+            <ul class="keep-list">${profiles.list.map((x) => `<li>${esc(nameOf(x))}</li>`).join('')}</ul>
+            <div class="journal-actions">
+              <button class="btn-danger" data-action="delete-all-confirm">${esc(t('yesDeleteAll'))}</button>
+              <button class="btn-ghost" data-action="keep-back">${esc(t('back'))}</button>
+            </div>
+          </div>
+        </section>`;
+      return;
+    }
     app.innerHTML = keep ? `
       <section class="onboarding">
         ${mark}
@@ -1646,6 +1669,7 @@
         <div class="lang-list">
           ${profiles.list.map((x) => `<button class="lang-option" data-action="keep-pick" data-id="${x.id}">${esc(nameOf(x))}</button>`).join('')}
         </div>
+        <button class="link-danger" data-action="keep-none">${esc(t('deleteAll'))}</button>
       </section>`;
   }
 
@@ -1673,6 +1697,13 @@
   render();
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || reloaded) return; // first install: nothing old to replace
+      reloaded = true;
+      location.reload();
+    });
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
 })();
