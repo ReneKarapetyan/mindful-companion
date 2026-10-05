@@ -6,6 +6,8 @@
   const MQ = window.MC_MOOD_QUOTES;
   const J = window.MC_JOURNAL;
   const EM = window.MC_EMOTIONS;
+  const R = window.MC_REFLECT;
+  Object.keys(R.ui).forEach((l) => Object.assign(C.ui[l], R.ui[l]));
   // Պրոֆիլներ. նույն սարքում մի քանի օգտատեր, ամեն մեկի տվյալները՝ առանձին բանալիով։
   const PROFILES_KEY = 'mindful-companion.profiles';
   const LEGACY_KEY = 'mindful-companion.v1';
@@ -39,6 +41,7 @@
   //     moodLog: [{ mood, emotion, at }], — բոլոր ընտրությունները՝ ժամով
   //     journal: [{ id, at, mood, emotion, kind, promptId, question, text }]
   //       kind: "guide" | "clarify" | "free" | "evening"
+  //     done: { stressed: 2 },            — ավարտված սեսիաներ. տրամադրություն → ուղղորդող հարցի №
   //   }
   // }
   // saved: [{ key, at }] — պահված քվոթեր. key = "d:<id>" (օրվա) կամ "m:<mood>:<index>"
@@ -136,7 +139,8 @@
     draft: '',
     eveningDraft: '',
     calMonth: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-    selectedDate: null
+    selectedDate: null,
+    quiz: null        // { step, answers: [] } թեստի ընթացքում
   };
   const saveDrafts = () => {
     if (profiles.active) writeStorage(draftKey(profiles.active), { journal: ui.draft, evening: ui.eveningDraft });
@@ -217,6 +221,45 @@
     if (!name) return '';
     const h = new Date().getHours();
     return t(h < 12 ? 'greetMorning' : h < EVENING_HOUR ? 'greetDay' : 'greetEvening', { name });
+  }
+
+  // Sky of the current hour: the one illustration the app is built around.
+  function skyPhase(h = new Date().getHours()) {
+    if (h >= 5 && h < 9) return 'dawn';
+    if (h >= 9 && h < 17) return 'day';
+    if (h >= 17 && h < 20) return 'dusk';
+    return 'night';
+  }
+
+  const SUN = { dawn: [96, 112, 15], day: [306, 40, 13], dusk: [324, 104, 21], night: [86, 42, 10] };
+  let sceneId = 0;
+
+  function sceneSvg(phase = skyPhase()) {
+    const id = `sky${(sceneId += 1)}`;
+    const [cx, cy, r] = SUN[phase];
+    const night = phase === 'night';
+    const stars = night
+      ? [[40, 22], [150, 30], [210, 16], [262, 44], [330, 24], [372, 52], [120, 60]]
+          .map(([x, y], i) => `<circle cx="${x}" cy="${y}" r="${i % 3 ? 0.9 : 1.3}" class="sc-star"/>`).join('')
+      : '';
+    const moonCut = night ? `<circle cx="${cx + 5}" cy="${cy - 3}" r="${r}" class="sc-cut"/>` : '';
+    return `
+      <svg class="scene-svg" viewBox="0 0 400 160" preserveAspectRatio="xMidYMax slice" aria-hidden="true" focusable="false">
+        <defs>
+          <linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" class="sc-top"/><stop offset="1" class="sc-bottom"/>
+          </linearGradient>
+        </defs>
+        <rect width="400" height="160" fill="url(#${id})"/>
+        ${stars}
+        <circle cx="${cx}" cy="${cy}" r="${r * 2.6}" class="sc-halo"/>
+        <circle cx="${cx}" cy="${cy}" r="${r}" class="sc-sun"/>
+        ${moonCut}
+        <path class="sc-far" d="M0 128 L58 112 L118 118 L186 94 L246 50 L262 58 L284 74 L304 84 L322 68 L344 88 L400 102 V160 H0Z"/>
+        <path class="sc-snow" d="M232 62 L246 50 L262 58 L270 64 L258 62 L248 68 L240 62Z"/>
+        <path class="sc-mid" d="M0 140 C40 128 82 122 132 128 S212 142 262 128 S340 116 400 126 V160 H0Z"/>
+        <path class="sc-near" d="M0 152 C62 140 122 146 182 151 S300 140 400 147 V160 H0Z"/>
+      </svg>`;
   }
 
   const esc = (s) =>
@@ -354,7 +397,7 @@
     ctx.fill();
 
     const size = q.text.length > 180 ? 46 : q.text.length > 100 ? 56 : 68;
-    ctx.font = `${size}px "Noto Serif", "Noto Serif Armenian", Georgia, serif`;
+    ctx.font = `${size}px Literata, "Noto Serif Armenian", Georgia, serif`;
     ctx.fillStyle = color('--ink');
     ctx.textBaseline = 'top';
     const lines = wrapLines(ctx, q.text, W - PAD * 2);
@@ -363,10 +406,10 @@
     let y = Math.max(PAD + 100, (H - blockH) / 2);
     lines.forEach((l) => { ctx.fillText(l, PAD, y); y += lh; });
 
-    ctx.font = `32px Inter, "Noto Sans Armenian", system-ui, sans-serif`;
+    ctx.font = `32px "Google Sans", "Noto Sans Armenian", system-ui, sans-serif`;
     ctx.fillStyle = color('--muted');
     ctx.fillText(q.source ? `${q.author} · ${q.source}` : q.author, PAD, y + 40);
-    ctx.font = `600 26px Inter, "Noto Sans Armenian", system-ui, sans-serif`;
+    ctx.font = `600 26px "Google Sans", "Noto Sans Armenian", system-ui, sans-serif`;
     ctx.fillText('MINDFUL COMPANION', PAD, H - PAD);
 
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
@@ -396,6 +439,17 @@
     return list.length; // բոլորին պատասխանել է → ազատ գրառում
   }
 
+  // Մեկ սեսիա = 1 ուղղորդող հարց + մինչև 2 ճշգրտող (ընդամենը ≤ 3)։ Հետո՝ ամփոփում։
+  // Տրամադրությունը փոխելիս կարելի է նոր սեսիա սկսել այդ տրամադրության համար։
+  const doneGuide = (mood) => today().done?.[mood] || null;
+
+  function completeSession(mood) {
+    const d = today();
+    d.done = { ...(d.done || {}), [mood]: ui.guideIdx + 1 };
+    ui.followIdx = null;
+    save();
+  }
+
   function currentQuestion(mood) {
     if (ui.jMood !== mood) {
       ui.jMood = mood;
@@ -403,7 +457,7 @@
       ui.followIdx = null;
     }
     const list = J.moods[mood];
-    if (ui.guideIdx >= list.length) return { id: 'free', kind: 'free', q: J.free };
+    if (doneGuide(mood) || ui.guideIdx >= list.length) return { kind: 'done' };
     const g = list[ui.guideIdx];
     if (ui.followIdx !== null) {
       return { id: `${mood}.${ui.guideIdx + 1}.${ui.followIdx + 1}`, kind: 'clarify', q: g.f[ui.followIdx] };
@@ -411,9 +465,10 @@
     return { id: `${mood}.${ui.guideIdx + 1}`, kind: 'guide', q: g.q };
   }
 
-  function nextGuide(mood) {
-    ui.followIdx = null;
-    ui.guideIdx = firstUnanswered(mood, ui.guideIdx + 1);
+  function nextFollowUp(mood) {
+    const followUps = J.moods[mood][ui.guideIdx].f;
+    if (ui.followIdx + 1 < followUps.length) ui.followIdx += 1;
+    else completeSession(mood);
   }
 
   function addEntry(kind, promptId, question, text) {
@@ -440,11 +495,7 @@
     saveDrafts();
 
     if (q.kind === 'guide') ui.followIdx = 0;
-    else if (q.kind === 'clarify') {
-      const followUps = J.moods[mood][ui.guideIdx].f;
-      if (ui.followIdx + 1 < followUps.length) ui.followIdx += 1;
-      else nextGuide(mood);
-    }
+    else if (q.kind === 'clarify') nextFollowUp(mood);
     save();
     render();
     app.querySelector('#journal-input')?.focus({ preventScroll: true });
@@ -604,7 +655,7 @@
       document.documentElement.lang = ob.lang;
       app.innerHTML = `
         <section class="onboarding">
-          <div class="mark" aria-hidden="true"></div>
+          <div class="mark scene" data-sky="${skyPhase()}" aria-hidden="true">${sceneSvg()}</div>
           <form class="name-form" data-form="name">
             <label for="name-input" class="onboarding-title">${esc(t('nameQ'))}</label>
             <input id="name-input" name="name" maxlength="${NAME_MAX}" autocomplete="nickname"
@@ -621,7 +672,7 @@
     document.documentElement.lang = 'hy';
     app.innerHTML = `
       <section class="onboarding">
-        <div class="mark" aria-hidden="true"></div>
+        <div class="mark scene" data-sky="${skyPhase()}" aria-hidden="true">${sceneSvg()}</div>
         <h1 class="onboarding-title">
           <span lang="hy">${esc(C.ui.hy.chooseLanguage)}</span>
           <span lang="ru">${esc(C.ui.ru.chooseLanguage)}</span>
@@ -681,23 +732,59 @@
       </section>`;
   }
 
+  // Ամփոփում. միայն պատասխանները (պիտակ + պատասխան), հետո եզրահանգում և «եթե-ապա» առաջարկ։
+  function summaryHtml(mood) {
+    const lang = state.lang;
+    const base = `${mood}.${doneGuide(mood)}`;
+    const sum = R.summary[base];
+    const sep = lang === 'hy' ? '՝ ' : ': ';
+    const rows = [base, `${base}.1`, `${base}.2`].map((id, i) => {
+      const answers = today().journal.filter((e) => e.promptId === id);
+      if (!answers.length || !sum) return '';
+      return `<li><span class="sum-label">${esc(sum.n[i][lang])}${sep}</span>${esc(answers.map((e) => e.text).join(' / '))}</li>`;
+    }).join('');
+    return `
+      <div class="card summary">
+        <h3 class="summary-h">${esc(t('summaryTitle'))}</h3>
+        ${rows ? `<ul class="sum-list">${rows}</ul>` : ''}
+        ${sum ? `
+          <p class="sum-k">${esc(t('summaryWe'))}</p>
+          <p class="sum-p">${esc(sum.insight[lang])}</p>
+          <p class="sum-k">${esc(t('summaryTry'))}</p>
+          <p class="sum-p sum-tip">${esc(sum.tip[lang])}</p>` : ''}
+        <p class="journal-hint">${esc(t('summaryNext'))}</p>
+      </div>`;
+  }
+
   function journalHtml(mood) {
     const q = currentQuestion(mood);
+    const entries = today().journal.filter((e) => e.kind !== 'evening' && e.mood === mood);
+
+    if (q.kind === 'done') {
+      return `
+        <section class="journal mood--${mood}" aria-labelledby="journal-h">
+          <h2 id="journal-h" class="section-h">${esc(t('journalTitle'))}</h2>
+          ${summaryHtml(mood)}
+        </section>`;
+    }
+
     const isFollowUp = q.kind === 'clarify';
-    const entries = today().journal.filter((e) => e.kind !== 'evening');
+    const total = 1 + J.moods[mood][ui.guideIdx].f.length;
+    const step = isFollowUp ? ui.followIdx + 2 : 1;
 
     return `
       <section class="journal mood--${mood}" aria-labelledby="journal-h">
         <h2 id="journal-h" class="section-h">${esc(t('journalTitle'))}</h2>
         <div class="card">
-          ${isFollowUp ? `<p class="journal-tag">${esc(t('followUp'))}</p>` : ''}
+          <p class="journal-tag">${esc(t('progress', { i: step, n: total }))}${isFollowUp ? ` · ${esc(t('followUp'))}` : ''}</p>
           <label for="journal-input" class="journal-q">${esc(q.q[state.lang])}</label>
           <textarea id="journal-input" data-draft="journal" rows="4" placeholder="${esc(t('placeholder'))}">${esc(ui.draft)}</textarea>
           <div class="journal-actions">
             <button class="btn-primary" data-action="j-save">${esc(t('save'))}</button>
             ${isFollowUp
-              ? `<button class="btn-ghost" data-action="j-skip">${esc(t('skip'))}</button>`
-              : q.kind === 'guide' ? `<button class="btn-ghost" data-action="j-other">${esc(t('otherQuestion'))} ↻</button>` : ''}
+              ? `<button class="btn-ghost" data-action="j-skip">${esc(t('skip'))}</button>
+                 <button class="btn-text" data-action="j-finish">${esc(t('finish'))}</button>`
+              : `<button class="btn-ghost" data-action="j-other">${esc(t('otherQuestion'))} ↻</button>`}
           </div>
           <p class="journal-hint">${esc(t('journalHint'))}</p>
         </div>
@@ -739,7 +826,10 @@
       ${headerHtml()}
 
       <article class="quote">
-        <p class="quote-day">${esc(t('day', { n: state.dayCount }))}</p>
+        <div class="scene" data-sky="${skyPhase()}">
+          ${sceneSvg()}
+          <p class="quote-day">${esc(t('day', { n: state.dayCount }))}</p>
+        </div>
         <blockquote class="quote-text">${esc(quote.text[lang])}</blockquote>
         <div class="quote-foot">
           <p class="quote-source">${esc(quote.author)}<span class="dot" aria-hidden="true">·</span><cite>${esc(quote.book[lang])}</cite></p>
@@ -950,6 +1040,49 @@
       </p>`;
   }
 
+  // «Ի՞նչ հանգիստ է քեզ պետք». առաջարկ, ոչ թե գնահատական։ Ցույց ենք տալիս միայն ամենաբարձր պատասխանները։
+  function quizHtml() {
+    const lang = state.lang;
+    const head = `<h2 class="section-h">${esc(t('quizTitle'))}</h2>`;
+    const note = `<p class="journal-hint">${esc(t('quizNote'))} ${esc(t('quizSource'))}</p>`;
+
+    if (ui.quiz) {
+      const item = R.quiz[ui.quiz.step];
+      const opts = [['quizNo', 0], ['quizBit', 1], ['quizYes', 2]];
+      return `
+        <section class="card quiz">
+          ${head}
+          <p class="journal-tag">${esc(t('progress', { i: ui.quiz.step + 1, n: R.quiz.length }))}</p>
+          <p class="quiz-q" aria-live="polite">${esc(item.q[lang])}</p>
+          <div class="chips">${opts.map(([k, v]) => `<button class="chip quiz-opt" data-action="quiz-answer" data-v="${v}">${esc(t(k))}</button>`).join('')}</div>
+        </section>`;
+    }
+
+    const last = state.restQuiz;
+    if (last) {
+      const max = Math.max(...last.answers);
+      const top = max > 0 ? R.quiz.filter((_, i) => last.answers[i] === max) : [];
+      return `
+        <section class="card quiz">
+          ${head}
+          ${top.length ? `
+            <p class="sum-k">${esc(t('quizResult'))}</p>
+            <ul class="quiz-res">${top.map((x) => `<li><strong>${esc(x.name[lang])}</strong><span>${esc(x.ideas[lang])}</span></li>`).join('')}</ul>`
+            : `<p class="sum-p">${esc(t('quizRested'))}</p>`}
+          <div class="journal-actions"><button class="btn-ghost" data-action="quiz-start">${esc(t('quizAgain'))}</button></div>
+          ${note}
+        </section>`;
+    }
+
+    return `
+      <section class="card quiz">
+        ${head}
+        <p class="sum-p">${esc(t('quizIntro'))}</p>
+        <div class="journal-actions"><button class="btn-primary" data-action="quiz-start">${esc(t('quizStart'))}</button></div>
+        ${note}
+      </section>`;
+  }
+
   function renderDays() {
     app.innerHTML = `
       ${headerHtml()}
@@ -959,6 +1092,7 @@
         ${dayDetailHtml()}
         ${distributionHtml()}
         ${insightsHtml()}
+        ${quizHtml()}
         ${savedHtml()}
         ${settingsHtml()}
       </div>`;
@@ -1012,7 +1146,18 @@
     'mq-step': (el) => { stepMoodQuote(today().mood, Number(el.dataset.step)); return false; },
     'j-save': () => { saveJournal(); return false; },
     'j-other': () => { ui.guideIdx = firstUnanswered(today().mood, ui.guideIdx + 1); },
-    'j-skip': () => { nextGuide(today().mood); },
+    'j-skip': () => { nextFollowUp(today().mood); },
+    'j-finish': () => { completeSession(today().mood); },
+    'quiz-start': () => { ui.quiz = { step: 0, answers: [] }; },
+    'quiz-answer': (el) => {
+      ui.quiz.answers.push(Number(el.dataset.v));
+      ui.quiz.step += 1;
+      if (ui.quiz.step >= R.quiz.length) {
+        state.restQuiz = { at: new Date().toISOString(), answers: ui.quiz.answers };
+        ui.quiz = null;
+        save();
+      }
+    },
     'j-del': (el) => { deleteEntry(el.dataset.date, el.dataset.id); return false; },
     'e-save': () => { saveEvening(); return false; },
     fav: (el) => {
@@ -1095,6 +1240,7 @@
   function openBreathing() {
     const overlay = document.createElement('div');
     overlay.className = 'breath-overlay';
+    overlay.dataset.sky = skyPhase();
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
     overlay.innerHTML = `
